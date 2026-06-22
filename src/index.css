@@ -1,0 +1,95 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;600;700&family=Noto+Serif+SC:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: 'Noto Sans SC', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #553522;
+  background-color: #FDF8F3;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+@layer components {
+  .btn-primary {
+    @apply px-6 py-2.5 bg-rose-gradient text-white rounded-xl font-medium 
+           hover:shadow-rose hover:-translate-y-0.5 transition-all duration-300
+           focus:outline-none focus:ring-2 focus:ring-rose-300 focus:ring-offset-2;
+  }
+
+  .btn-secondary {
+    @apply px-6 py-2.5 bg-white text-rose-600 border border-rose-200 rounded-xl font-medium
+           hover:bg-rose-50 hover:border-rose-300 transition-all duration-300;
+  }
+
+  .btn-ghost {
+    @apply px-4 py-2 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors duration-200;
+  }
+
+  .card {
+    @apply bg-white rounded-2xl shadow-card hover:shadow-card-hover transition-shadow duration-300;
+  }
+
+  .input-field {
+    @apply w-full px-4 py-3 border border-cream-300 rounded-xl bg-cream-50
+           focus:outline-none focus:ring-2 focus:ring-rose-300 focus:border-rose-300
+           transition-all duration-200 placeholder:text-rose-300;
+  }
+
+  .tag {
+    @apply inline-flex items-center px-3 py-1 rounded-full text-sm font-medium;
+  }
+
+  .tag-rose {
+    @apply tag bg-rose-100 text-rose-600;
+  }
+
+  .tag-mint {
+    @apply tag bg-mint-100 text-mint-600;
+  }
+
+  .tag-coral {
+    @apply tag bg-coral-100 text-coral-600;
+  }
+
+  .sidebar-link {
+    @apply flex items-center gap-3 px-4 py-3 rounded-xl text-rose-700
+           hover:bg-rose-100 transition-all duration-200;
+  }
+
+  .sidebar-link-active {
+    @apply sidebar-link bg-rose-gradient text-white shadow-rose;
+  }
+}
+
+/* 自定义滚动条 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #FAF0E6;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #E8C4A0;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #D4A574;
+}
