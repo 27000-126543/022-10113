@@ -25,6 +25,7 @@ interface AppState {
 
   addTriageRecord: (record: Omit<TriageRecord, 'id' | 'queuedAt'>) => TriageRecord;
   updateTriageStatus: (id: string, status: TriageRecord['status']) => void;
+  reassignTriageDoctor: (id: string, doctorId: string, reason: string) => void;
   callNextPatient: (doctorId: string) => TriageRecord | null;
 
   getTodayStats: () => {
@@ -121,13 +122,41 @@ export const useAppStore = create<AppState>((set, get) => ({
     const state = get();
     const queuedRecords = state.triageRecords
       .filter((r) => r.status === 'queued' && r.doctorId === doctorId)
-      .sort((a, b) => b.priority - a.priority || a.waitTime - b.waitTime);
+      .sort((a, b) => {
+        if (b.priority !== a.priority) return b.priority - a.priority;
+        return new Date(a.queuedAt).getTime() - new Date(b.queuedAt).getTime();
+      });
 
     if (queuedRecords.length === 0) return null;
 
     const nextRecord = queuedRecords[0];
     get().updateTriageStatus(nextRecord.id, 'calling');
     return nextRecord;
+  },
+
+  reassignTriageDoctor: (id, newDoctorId, reason) => {
+    const state = get();
+    const record = state.triageRecords.find((r) => r.id === id);
+    const newDoctor = state.doctors.find((d) => d.id === newDoctorId);
+
+    if (!record || !newDoctor) return;
+
+    set((prevState) => ({
+      triageRecords: prevState.triageRecords.map((r) => {
+        if (r.id !== id) return r;
+        return {
+          ...r,
+          doctorId: newDoctor.id,
+          doctorName: newDoctor.name,
+          departmentName: newDoctor.departmentName,
+          room: newDoctor.room,
+          isManualAdjusted: true,
+          adjustReason: reason,
+          suggestedDoctorId: r.suggestedDoctorId || r.doctorId,
+          priority: Math.max(r.priority, 2),
+        };
+      }),
+    }));
   },
 
   getTodayStats: () => {

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   BarChart,
   Bar,
@@ -19,9 +20,15 @@ import {
   PieChart as PieChartIcon,
   BarChart3,
   Sparkles,
+  ChevronDown,
+  ChevronUp,
+  AlertTriangle,
+  User,
 } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import { StatCard } from '@/components/StatCard';
+import { Tag } from '@/components/Tag';
+import { formatTime, formatWaitTime } from '@/utils/format';
 
 const dailyData = [
   { day: '周一', arrivals: 22, completed: 20, avgWait: 15 },
@@ -65,11 +72,62 @@ const hourlyData = [
 ];
 
 const Review = () => {
-  const { triageRecords, customers, getTodayStats } = useAppStore();
+  const { triageRecords, customers, doctors, getTodayStats } = useAppStore();
   const stats = getTodayStats();
+  const [expandedDoctors, setExpandedDoctors] = useState<Record<string, boolean>>({});
 
   const avgWaitTime = 18;
   const avgConsultTime = 25;
+
+  const today = new Date().toDateString();
+  const todayRecords = triageRecords.filter((r) => {
+    const recordDate = new Date(r.queuedAt).toDateString();
+    return recordDate === today;
+  });
+
+  const doctorStats = doctors.map((doctor) => {
+    const doctorRecords = todayRecords.filter((r) => r.doctorId === doctor.id);
+    const completed = doctorRecords.filter((r) => r.status === 'completed');
+    const queued = doctorRecords.filter((r) => r.status === 'queued');
+    const active = doctorRecords.filter((r) => r.status === 'calling' || r.status === 'consulting');
+    const manualAdjusted = doctorRecords.filter((r) => r.isManualAdjusted);
+    const highRisk = doctorRecords.filter((r) => r.hasHighRisk);
+
+    const avgWait = completed.length > 0
+      ? Math.round(completed.reduce((acc, r) => acc + r.waitTime, 0) / completed.length)
+      : 0;
+
+    return {
+      doctor,
+      total: doctorRecords.length,
+      completed: completed.length,
+      queued: queued.length,
+      active: active.length,
+      manualAdjusted: manualAdjusted.length,
+      highRisk: highRisk.length,
+      avgWait,
+      records: doctorRecords.sort((a, b) =>
+        new Date(a.queuedAt).getTime() - new Date(b.queuedAt).getTime()
+      ),
+    };
+  }).sort((a, b) => b.total - a.total);
+
+  const toggleExpand = (doctorId: string) => {
+    setExpandedDoctors((prev) => ({
+      ...prev,
+      [doctorId]: !prev[doctorId],
+    }));
+  };
+
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'queued': return { text: '候诊中', color: 'text-rose-500 bg-rose-50' };
+      case 'calling': return { text: '叫号中', color: 'text-amber-600 bg-amber-50' };
+      case 'consulting': return { text: '接诊中', color: 'text-mint-600 bg-mint-50' };
+      case 'completed': return { text: '已完成', color: 'text-gray-500 bg-gray-50' };
+      default: return { text: status, color: 'text-gray-500 bg-gray-50' };
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -278,6 +336,147 @@ const Review = () => {
               </p>
             </div>
           ))}
+        </div>
+      </div>
+
+      <div className="card p-6">
+        <div className="flex items-center justify-between mb-5">
+          <h4 className="font-serif font-semibold text-rose-800 text-lg flex items-center gap-2">
+            <Users className="w-5 h-5 text-rose-400" />
+            今日医生分诊明细
+          </h4>
+          <Tag variant="rose">{doctorStats.filter(d => d.total > 0).length} 位医生接诊</Tag>
+        </div>
+
+        <div className="space-y-3">
+          {doctorStats.map(({ doctor, total, completed, queued, active, manualAdjusted, highRisk, avgWait, records }) => {
+            const isExpanded = expandedDoctors[doctor.id] === true;
+            return (
+              <div key={doctor.id} className="border border-cream-200 rounded-2xl overflow-hidden">
+                <div
+                  className="p-4 bg-cream-50/50 flex items-center justify-between cursor-pointer hover:bg-cream-50 transition-colors"
+                  onClick={() => toggleExpand(doctor.id)}
+                >
+                  <div className="flex items-center gap-4">
+                    <img
+                      src={doctor.avatar}
+                      alt={doctor.name}
+                      className="w-12 h-12 rounded-full bg-rose-100"
+                    />
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h5 className="font-medium text-rose-800">{doctor.name}</h5>
+                        <Tag variant="rose" size="sm">{doctor.departmentName}</Tag>
+                      </div>
+                      <p className="text-xs text-rose-400 mt-0.5">{doctor.title} · {doctor.room}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-8">
+                    <div className="text-center">
+                      <p className="text-xl font-bold text-rose-600 font-serif">{total}</p>
+                      <p className="text-xs text-rose-400">今日接诊</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xl font-bold text-mint-500 font-serif">{completed}</p>
+                      <p className="text-xs text-rose-400">已完成</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xl font-bold text-amber-500 font-serif">{avgWait}</p>
+                      <p className="text-xs text-rose-400">平均等待(分)</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xl font-bold text-coral-500 font-serif">{manualAdjusted}</p>
+                      <p className="text-xs text-rose-400">人工调整</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xl font-bold text-rose-400 font-serif">{highRisk}</p>
+                      <p className="text-xs text-rose-400">高风险</p>
+                    </div>
+                    {isExpanded ? (
+                      <ChevronUp className="w-5 h-5 text-rose-400" />
+                    ) : (
+                      <ChevronDown className="w-5 h-5 text-rose-400" />
+                    )}
+                  </div>
+                </div>
+
+                {isExpanded && (
+                  <div className="p-4 border-t border-cream-100 bg-white">
+                    {records.length === 0 ? (
+                      <div className="text-center py-6 text-rose-400">
+                        <User className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">今日暂无接诊记录</p>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-left text-rose-400 border-b border-cream-100">
+                              <th className="pb-3 pl-2 font-medium">顾客</th>
+                              <th className="pb-3 font-medium">状态</th>
+                              <th className="pb-3 font-medium">到诊时间</th>
+                              <th className="pb-3 font-medium">等待时长</th>
+                              <th className="pb-3 font-medium">风险</th>
+                              <th className="pb-3 font-medium">调整</th>
+                              <th className="pb-3 pr-2 font-medium text-right">完成时间</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {records.map((record) => {
+                              const statusInfo = getStatusLabel(record.status);
+                              return (
+                                <tr key={record.id} className="border-b border-cream-50 last:border-0">
+                                  <td className="py-3 pl-2">
+                                    <span className="font-medium text-rose-700">
+                                      {record.customerName}
+                                    </span>
+                                  </td>
+                                  <td className="py-3">
+                                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusInfo.color}`}>
+                                      {statusInfo.text}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 text-rose-500">
+                                    {formatTime(record.queuedAt)}
+                                  </td>
+                                  <td className="py-3 text-rose-500">
+                                    {formatWaitTime(record.waitTime)}
+                                  </td>
+                                  <td className="py-3">
+                                    {record.hasHighRisk ? (
+                                      <span className="flex items-center gap-1 text-coral-500 text-xs">
+                                        <AlertTriangle className="w-3 h-3" />
+                                        高风险
+                                      </span>
+                                    ) : (
+                                      <span className="text-mint-500 text-xs">正常</span>
+                                    )}
+                                  </td>
+                                  <td className="py-3">
+                                    {record.isManualAdjusted ? (
+                                      <span className="text-amber-600 text-xs" title={record.adjustReason}>
+                                        是
+                                      </span>
+                                    ) : (
+                                      <span className="text-gray-400 text-xs">否</span>
+                                    )}
+                                  </td>
+                                  <td className="py-3 pr-2 text-right text-rose-400">
+                                    {record.completedAt ? formatTime(record.completedAt) : '--'}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
