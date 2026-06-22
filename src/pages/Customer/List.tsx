@@ -3,15 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import { Search, Plus, Filter, User, Phone, Calendar, QrCode } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import { Tag } from '@/components/Tag';
+import { ScanModal, ScanResult } from '@/components/ScanModal';
 import { sourceChannels } from '@/mock';
 import { maskIdCard, maskPhone } from '@/utils/validator';
 import { formatFullDate, getGenderText } from '@/utils/format';
 
 const CustomerList = () => {
   const navigate = useNavigate();
-  const { customers } = useAppStore();
+  const { customers, addCustomer } = useAppStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterChannel, setFilterChannel] = useState('');
+  const [scanModalOpen, setScanModalOpen] = useState(false);
 
   const filteredCustomers = customers.filter((customer) => {
     const matchSearch = customer.name.includes(searchTerm) ||
@@ -20,6 +22,27 @@ const CustomerList = () => {
     const matchChannel = !filterChannel || customer.sourceChannel === filterChannel;
     return matchSearch && matchChannel;
   });
+
+  const handleScanSuccess = (data: ScanResult) => {
+    const existingCustomer = customers.find((c) => c.idCard === data.idCard);
+    if (existingCustomer) {
+      navigate(`/customers/${existingCustomer.id}`);
+      return;
+    }
+
+    const newCustomer = addCustomer({
+      name: data.name,
+      idCard: data.idCard,
+      phone: data.phone,
+      age: data.age,
+      gender: data.gender,
+      sourceChannel: data.sourceChannel,
+      appointmentItem: data.appointmentItem,
+      tags: ['新客', '扫码建档'],
+    });
+
+    navigate(`/customers/${newCustomer.id}`);
+  };
 
   return (
     <div className="space-y-6">
@@ -57,7 +80,10 @@ const CustomerList = () => {
           </div>
 
           <div className="flex items-center gap-3">
-            <button className="btn-secondary flex items-center gap-2">
+            <button
+              onClick={() => setScanModalOpen(true)}
+              className="btn-secondary flex items-center gap-2"
+            >
               <QrCode className="w-5 h-5" />
               扫码建档
             </button>
@@ -133,6 +159,12 @@ const CustomerList = () => {
           </button>
         </div>
       )}
+
+      <ScanModal
+        isOpen={scanModalOpen}
+        onClose={() => setScanModalOpen(false)}
+        onScanSuccess={handleScanSuccess}
+      />
     </div>
   );
 };

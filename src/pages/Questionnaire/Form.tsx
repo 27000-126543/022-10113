@@ -20,8 +20,7 @@ import {
   allergyOptions,
   consultantTagOptions,
 } from '@/mock';
-import { generateRiskAlerts } from '@/utils/triage';
-import { suggestDoctor } from '@/utils/triage';
+import { generateRiskAlerts, getDoctorRecommendations, getSuggestedDepartment } from '@/utils/triage';
 
 const steps = [
   { id: 1, title: '求美诉求', icon: Sparkles },
@@ -34,12 +33,14 @@ const steps = [
 const QuestionnaireForm = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { getCustomer, getQuestionnaire, doctors, addQuestionnaire, addTriageRecord } = useAppStore();
+  const { getCustomer, getQuestionnaire, doctors, triageRecords, addQuestionnaire, addTriageRecord } = useAppStore();
 
   const customer = getCustomer(id || '');
   const existingQuestionnaire = getQuestionnaire(id || '');
 
   const [currentStep, setCurrentStep] = useState(1);
+  const [selectedDoctorId, setSelectedDoctorId] = useState<string>('');
+  const [adjustReason, setAdjustReason] = useState('');
   const [formData, setFormData] = useState({
     skinConcerns: existingQuestionnaire?.skinConcerns || [],
     facialConcerns: existingQuestionnaire?.facialConcerns || [],
@@ -60,7 +61,21 @@ const QuestionnaireForm = () => {
     );
   }, [formData.pastProcedures, formData.allergies, formData.contraindications]);
 
-  const suggestedDoctor = useMemo(() => {
+  const doctorRecommendations = useMemo(() => {
+    if (!customer) return [];
+    const tempQuestionnaire = {
+      id: 'temp',
+      customerId: customer.id,
+      ...formData,
+      riskAlerts,
+      createdAt: new Date().toISOString(),
+    };
+    const recommendations = getDoctorRecommendations(doctors, tempQuestionnaire, triageRecords);
+
+    return recommendations;
+  }, [doctors, customer, formData, riskAlerts, triageRecords]);
+
+  const suggestedDepartment = useMemo(() => {
     if (!customer) return null;
     const tempQuestionnaire = {
       id: 'temp',
@@ -69,8 +84,21 @@ const QuestionnaireForm = () => {
       riskAlerts,
       createdAt: new Date().toISOString(),
     };
-    return suggestDoctor(doctors, customer.id);
-  }, [doctors, customer, formData, riskAlerts]);
+    return getSuggestedDepartment(tempQuestionnaire);
+  }, [customer, formData, riskAlerts]);
+
+  const selectedDoctor = useMemo(() => {
+    if (!selectedDoctorId) {
+      return doctorRecommendations[0]?.doctor || null;
+    }
+    return doctors.find((d) => d.id === selectedDoctorId) || null;
+  }, [selectedDoctorId, doctorRecommendations, doctors]);
+
+  const isManualAdjusted = useMemo(() => {
+    if (!doctorRecommendations.length) return false;
+    const topDoctorId = doctorRecommendations[0].doctor.id;
+    return selectedDoctorId && selectedDoctorId !== topDoctorId;
+  }, [selectedDoctorId, doctorRecommendations]);
 
   const toggleItem = (field: keyof typeof formData, value: string) => {
     setFormData((prev) => {
@@ -107,7 +135,7 @@ const QuestionnaireForm = () => {
   };
 
   const handleSubmit = () => {
-    if (!customer) return;
+    if (!customer || !selectedDoctor) return;
 
     const questionnaire = {
       id: `q_${Date.now()}`,
@@ -119,24 +147,30 @@ const QuestionnaireForm = () => {
 
     addQuestionnaire(questionnaire);
 
-    if (suggestedDoctor) {
-      const hasHighRisk = riskAlerts.some((r) => r.level === 'high');
-      addTriageRecord({
-        customerId: customer.id,
-        customerName: customer.name,
-        doctorId: suggestedDoctor.id,
-        doctorName: suggestedDoctor.name,
-        departmentName: suggestedDoctor.departmentName,
-        room: suggestedDoctor.room,
-        status: 'queued',
-        priority: hasHighRisk ? 3 : 1,
-        waitTime: 0,
-        estimatedWait: 15,
-        suggestedDoctorId: suggestedDoctor.id,
-        isManualAdjusted: false,
-        hasHighRisk,
-      });
-    }
+    const hasHighRisk = riskAlerts.some((r) => r.level === 'high');
+    const suggestedDoctorId = doctorRecommendations[0]?.doctor.id || selectedDoctor.id;
+
+    const selectedRec = doctorRecommendations.find((r) => r.doctor.id === selectedDoctor.id);
+    const estimatedWait = selectedRec?.estimatedWait || 15;
+
+    const finalPriority = hasHighRisk ? 3 : isManualAdjusted ? 2 : 1;
+
+    addTriageRecord({
+      customerId: customer.id,
+      customerName: customer.name,
+      doctorId: selectedDoctor.id,
+      doctorName: selectedDoctor.name,
+      departmentName: selectedDoctor.departmentName,
+      room: selectedDoctor.room,
+      status: 'queued',
+      priority: finalPriority,
+      waitTime: 0,
+      estimatedWait,
+      suggestedDoctorId,
+      isManualAdjusted,
+      adjustReason: isManualAdjusted ? adjustReason : undefined,
+      hasHighRisk,
+    });
 
     navigate('/triage');
   };
@@ -443,73 +477,32 @@ const QuestionnaireForm = () => {
       case 5:
         return (
           <div className="space-y-6">
-            <div className="text-center mb-8">
+            <div className="text-center mb-6">
               <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-mint-100 mb-4">
                 <Stethoscope className="w-8 h-8 text-mint-500" />
               </div>
               <h4 className="font-serif text-xl font-semibold text-rose-800">智能分诊建议</h4>
               <p className="text-rose-400 mt-2">
-                系统根据顾客诉求和医生专长，推荐以下医生
+                系统根据{suggestedDepartment ? `「${suggestedDepartment}」诉求` : '诉求'}和医生专长智能匹配
               </p>
             </div>
 
-            {suggestedDoctor ? (
-              <div className="p-6 bg-gradient-to-br from-mint-50 to-rose-50 rounded-2xl border-2 border-mint-300">
-                <div className="flex items-center gap-4">
-                  <img
-                    src={suggestedDoctor.avatar}
-                    alt={suggestedDoctor.name}
-                    className="w-20 h-20 rounded-full bg-white shadow-md"
-                  />
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <h5 className="text-xl font-serif font-bold text-rose-800">
-                        {suggestedDoctor.name}
-                      </h5>
-                      <Tag variant="mint">推荐医生</Tag>
-                    </div>
-                    <p className="text-rose-500 mt-1">
-                      {suggestedDoctor.title} · {suggestedDoctor.departmentName}
-                    </p>
-                    <p className="text-sm text-rose-400 mt-1">{suggestedDoctor.room}</p>
-                  </div>
-                  <div className="text-right">
-                    <Tag variant={suggestedDoctor.status === 'available' ? 'mint' : 'rose'}>
-                      {suggestedDoctor.status === 'available' ? '可接诊' : '接诊中'}
-                    </Tag>
-                    <p className="text-sm text-rose-400 mt-2">
-                      今日已接诊 {suggestedDoctor.todayPatientCount} 人
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-4 pt-4 border-t border-cream-200">
-                  <p className="text-sm text-rose-500 mb-2">擅长项目</p>
-                  <div className="flex flex-wrap gap-2">
-                    {suggestedDoctor.specialties.slice(0, 5).map((s) => (
-                      <Tag key={s} variant="rose">{s}</Tag>
-                    ))}
-                  </div>
-                </div>
+            <div className="grid grid-cols-3 gap-4 mb-6">
+              <div className="card p-4 text-center">
+                <p className="text-sm text-rose-400">推荐科室</p>
+                <p className="text-lg font-bold text-rose-700 mt-1 font-serif">
+                  {suggestedDepartment || '待评估'}
+                </p>
               </div>
-            ) : (
-              <div className="p-8 text-center bg-gray-50 rounded-2xl">
-                <p className="text-rose-400">暂无合适的医生推荐</p>
+              <div className="card p-4 text-center">
+                <p className="text-sm text-rose-400">匹配医生</p>
+                <p className="text-lg font-bold text-rose-700 mt-1 font-serif">
+                  {doctorRecommendations.length} 位
+                </p>
               </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="card p-4">
-                <p className="text-sm text-rose-400">求美诉求</p>
-                <div className="flex flex-wrap gap-1.5 mt-2">
-                  {[...formData.skinConcerns, ...formData.facialConcerns, ...formData.bodyConcerns].slice(0, 6).map((c) => (
-                    <Tag key={c} variant="rose" size="sm">{c}</Tag>
-                  ))}
-                </div>
-              </div>
-              <div className="card p-4">
+              <div className="card p-4 text-center">
                 <p className="text-sm text-rose-400">风险等级</p>
-                <div className="mt-2">
+                <div className="mt-1">
                   {riskAlerts.length === 0 ? (
                     <Tag variant="mint">低风险</Tag>
                   ) : riskAlerts.some((r) => r.level === 'high') ? (
@@ -522,11 +515,112 @@ const QuestionnaireForm = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-rose-700 mb-2">分诊调整说明（选填）</label>
-              <textarea
-                placeholder="如手动调整医生，请填写调整原因..."
-                className="input-field min-h-[80px] resize-none"
-              />
+              <div className="flex items-center justify-between mb-3">
+                <h5 className="font-serif font-semibold text-rose-800">选择接诊医生</h5>
+                <span className="text-sm text-rose-400">点击选择，可调整</span>
+              </div>
+
+              <div className="space-y-3">
+                {doctorRecommendations.map((rec, index) => (
+                  <div
+                    key={rec.doctor.id}
+                    onClick={() => setSelectedDoctorId(rec.doctor.id)}
+                    className={`p-4 rounded-2xl border-2 cursor-pointer transition-all
+                              ${selectedDoctor?.id === rec.doctor.id || (index === 0 && !selectedDoctorId)
+                                ? 'border-rose-400 bg-rose-50 shadow-md'
+                                : 'border-cream-200 bg-white hover:border-rose-200 hover:bg-rose-50/50'}`}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="relative">
+                        <img
+                          src={rec.doctor.avatar}
+                          alt={rec.doctor.name}
+                          className="w-14 h-14 rounded-full bg-cream-100"
+                        />
+                        {index === 0 && (
+                          <div className="absolute -top-1 -right-1 w-6 h-6 bg-mint-500 rounded-full flex items-center justify-center text-white text-xs font-bold">
+                            1
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h6 className="font-semibold text-rose-800">{rec.doctor.name}</h6>
+                          {rec.isRecommended && (
+                            <Tag variant="mint" size="sm">系统推荐</Tag>
+                          )}
+                          {rec.doctor.status === 'available' ? (
+                            <Tag variant="mint" size="sm">可接诊</Tag>
+                          ) : rec.doctor.status === 'busy' ? (
+                            <Tag variant="rose" size="sm">接诊中</Tag>
+                          ) : (
+                            <Tag variant="gray" size="sm">离线</Tag>
+                          )}
+                        </div>
+                        <p className="text-sm text-rose-500 mt-0.5">
+                          {rec.doctor.title} · {rec.doctor.departmentName}
+                        </p>
+                        <p className="text-xs text-rose-400 mt-0.5">{rec.matchReason}</p>
+                      </div>
+
+                      <div className="text-right">
+                        <p className="text-sm text-rose-500">
+                          预计等待 <span className="font-bold text-rose-700">{rec.estimatedWait}</span> 分钟
+                        </p>
+                        <p className="text-xs text-rose-400 mt-1">
+                          {rec.doctor.room}
+                        </p>
+                      </div>
+
+                      <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center
+                                    ${selectedDoctor?.id === rec.doctor.id || (index === 0 && !selectedDoctorId)
+                                      ? 'border-rose-500 bg-rose-500'
+                                      : 'border-cream-300'}`}>
+                        {(selectedDoctor?.id === rec.doctor.id || (index === 0 && !selectedDoctorId)) && (
+                          <Check className="w-4 h-4 text-white" />
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="mt-3 pt-3 border-t border-cream-100 flex flex-wrap gap-1.5">
+                      {rec.doctor.specialties.slice(0, 4).map((s) => (
+                        <Tag key={s} variant="rose" size="sm">{s}</Tag>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {isManualAdjusted && (
+              <div className="p-4 bg-amber-50 rounded-xl border border-amber-200">
+                <label className="block text-sm font-medium text-amber-700 mb-2">
+                  ⚠️ 人工调整原因 <span className="text-coral-500">*</span>
+                </label>
+                <textarea
+                  value={adjustReason}
+                  onChange={(e) => setAdjustReason(e.target.value)}
+                  placeholder="请说明调整医生的原因..."
+                  className="w-full px-4 py-3 border border-amber-200 rounded-xl bg-white
+                           focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-300
+                           transition-all duration-200 resize-none text-sm"
+                  rows={3}
+                />
+              </div>
+            )}
+
+            <div className="p-4 bg-mint-50 rounded-xl">
+              <p className="text-sm text-mint-700">
+                <strong>已选择：</strong>
+                {selectedDoctor?.name} - {selectedDoctor?.departmentName}
+                {selectedDoctor && (
+                  <span className="ml-2">
+                    （预计等待 {doctorRecommendations.find(r => r.doctor.id === selectedDoctor.id)?.estimatedWait || 0} 分钟）
+                  </span>
+                )}
+                {isManualAdjusted && <span className="ml-2 text-amber-600">（人工调整）</span>}
+              </p>
             </div>
           </div>
         );

@@ -14,6 +14,7 @@ import { useAppStore } from '@/store/useAppStore';
 import { StatusBadge } from '@/components/StatusBadge';
 import { Tag } from '@/components/Tag';
 import { formatTime, formatWaitTime, getWaitTimeColor } from '@/utils/format';
+import { calculateEstimatedWait } from '@/utils/triage';
 
 const TriageBoard = () => {
   const { triageRecords, doctors, updateTriageStatus, callNextPatient } = useAppStore();
@@ -94,7 +95,17 @@ const TriageBoard = () => {
                 等候队列
               </h4>
               <span className="text-sm text-rose-400">
-                平均等待 {formatWaitTime(18)}
+                平均等待 {formatWaitTime(
+                  Math.round(
+                    queuedRecords.reduce((acc, r) => {
+                      const doctor = doctors.find((d) => d.id === r.doctorId);
+                      const doctorQueueIndex = queuedRecords
+                        .filter((qr) => qr.doctorId === r.doctorId)
+                        .findIndex((qr) => qr.id === r.id);
+                      return acc + (doctor ? calculateEstimatedWait(doctor, triageRecords, doctorQueueIndex) : r.estimatedWait);
+                    }, 0) / Math.max(queuedRecords.length, 1)
+                  )
+                )}
               </span>
             </div>
 
@@ -107,6 +118,18 @@ const TriageBoard = () => {
               ) : (
                 queuedRecords.map((record, index) => {
                   const priorityInfo = getPriorityLabel(record.priority);
+                  const doctor = doctors.find((d) => d.id === record.doctorId);
+
+                  const doctorQueueCount = queuedRecords.filter(
+                    (r) => r.doctorId === record.doctorId
+                  ).length;
+                  const doctorQueueIndex = queuedRecords
+                    .filter((r) => r.doctorId === record.doctorId)
+                    .findIndex((r) => r.id === record.id);
+                  const dynamicWait = doctor
+                    ? calculateEstimatedWait(doctor, triageRecords, doctorQueueIndex)
+                    : record.estimatedWait;
+
                   return (
                     <div
                       key={record.id}
@@ -120,15 +143,20 @@ const TriageBoard = () => {
                         </div>
 
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <h5 className="font-medium text-rose-800">{record.customerName}</h5>
                             <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${priorityInfo.color}`}>
                               {priorityInfo.label}
                             </span>
                             {record.hasHighRisk && (
-                              <span className="text-coral-500">
+                              <span className="text-coral-500 flex items-center gap-0.5" title="高风险">
                                 <AlertTriangle className="w-4 h-4" />
                               </span>
+                            )}
+                            {record.isManualAdjusted && (
+                              <Tag variant="coral" size="sm">
+                                人工调整
+                              </Tag>
                             )}
                           </div>
                           <div className="flex items-center gap-2 mt-1">
@@ -136,16 +164,33 @@ const TriageBoard = () => {
                             <span className="text-xs text-rose-400">
                               {record.doctorName} · {record.room}
                             </span>
+                            {doctor && (
+                              <span className="text-xs text-mint-500">
+                                · 排队 {doctorQueueCount} 人
+                              </span>
+                            )}
                           </div>
+                          {record.isManualAdjusted && record.adjustReason && (
+                            <div className="mt-2 text-xs text-amber-600 bg-amber-50 px-2 py-1.5 rounded-lg">
+                              <span className="font-medium">调整原因：</span>
+                              {record.adjustReason}
+                            </div>
+                          )}
                         </div>
 
                         <div className="text-right">
                           <p className={`text-sm font-medium ${getWaitTimeColor(record.waitTime)}`}>
-                            等待 {formatWaitTime(record.waitTime)}
+                            已等 {formatWaitTime(record.waitTime)}
                           </p>
-                          <p className="text-xs text-rose-400">
-                            预计还需 {formatWaitTime(record.estimatedWait)}
+                          <p className="text-xs text-rose-400 mt-0.5">
+                            预计还需 <span className="font-medium text-rose-600">{formatWaitTime(dynamicWait)}</span>
                           </p>
+                          {doctor && (
+                            <p className="text-xs text-mint-500 mt-0.5">
+                              {doctor.status === 'available' ? '医生空闲' :
+                               doctor.status === 'busy' ? '医生接诊中' : '医生离线'}
+                            </p>
+                          )}
                         </div>
 
                         <div className="flex gap-2">
@@ -158,13 +203,6 @@ const TriageBoard = () => {
                           </button>
                         </div>
                       </div>
-
-                      {record.isManualAdjusted && record.adjustReason && (
-                        <div className="mt-3 pl-14 text-xs text-rose-400">
-                          <span className="text-amber-500">※ 人工调整：</span>
-                          {record.adjustReason}
-                        </div>
-                      )}
                     </div>
                   );
                 })
@@ -183,6 +221,8 @@ const TriageBoard = () => {
             <div className="grid grid-cols-2 gap-4">
               {doctors.filter((d) => d.status !== 'offline').map((doctor) => {
                 const activeRecord = activeRecords.find((r) => r.doctorId === doctor.id);
+                const doctorQueue = queuedRecords.filter((r) => r.doctorId === doctor.id);
+                const nextWait = calculateEstimatedWait(doctor, triageRecords, 0);
                 return (
                   <div
                     key={doctor.id}
@@ -244,15 +284,22 @@ const TriageBoard = () => {
                     ) : (
                       <button
                         onClick={() => handleCallNext(doctor.id)}
-                        disabled={!queuedRecords.some((r) => r.doctorId === doctor.id)}
+                        disabled={!doctorQueue.length}
                         className={`w-full py-2 rounded-xl text-sm font-medium flex items-center justify-center gap-2
-                                  ${queuedRecords.some((r) => r.doctorId === doctor.id)
+                                  ${doctorQueue.length
                                     ? 'bg-mint-100 text-mint-700 hover:bg-mint-200 transition-colors'
                                     : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
                       >
                         <ArrowRight className="w-4 h-4" />
-                        呼叫下一位
+                        {doctorQueue.length ? `呼叫下一位 (${doctorQueue.length}人等候)` : '无候诊顾客'}
                       </button>
+                    )}
+
+                    {doctorQueue.length > 0 && (
+                      <div className="mt-2 pt-2 border-t border-cream-100 flex items-center justify-between text-xs">
+                        <span className="text-rose-400">排队 {doctorQueue.length} 人</span>
+                        <span className="text-mint-500">预计下一位等 {nextWait} 分钟</span>
+                      </div>
                     )}
                   </div>
                 );

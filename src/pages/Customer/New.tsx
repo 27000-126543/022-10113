@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, QrCode, CheckCircle, XCircle, User, Phone, FileText } from 'lucide-react';
+import { ArrowLeft, QrCode, CheckCircle, XCircle, User, Phone, FileText, Sparkles } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import { validateIdCard, validatePhone } from '@/utils/validator';
 import { sourceChannels } from '@/mock';
+import { ScanModal, ScanResult } from '@/components/ScanModal';
 
 const NewCustomer = () => {
   const navigate = useNavigate();
@@ -21,6 +22,8 @@ const NewCustomer = () => {
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [scanModalOpen, setScanModalOpen] = useState(false);
+  const [hasScanFilled, setHasScanFilled] = useState(false);
 
   const handleChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -51,6 +54,26 @@ const NewCustomer = () => {
 
   const handleBlur = (field: string) => {
     setTouched((prev) => ({ ...prev, [field]: true }));
+  };
+
+  const handleScanSuccess = (data: ScanResult) => {
+    setFormData({
+      name: data.name,
+      idCard: data.idCard,
+      phone: data.phone,
+      gender: data.gender,
+      age: data.age.toString(),
+      sourceChannel: data.sourceChannel,
+      appointmentItem: data.appointmentItem,
+    });
+    setHasScanFilled(true);
+    setTouched({
+      name: true,
+      idCard: true,
+      phone: true,
+      sourceChannel: true,
+    });
+    setErrors({});
   };
 
   const validateForm = (): boolean => {
@@ -137,12 +160,32 @@ const NewCustomer = () => {
             </div>
             <div>
               <h4 className="font-serif font-semibold text-rose-800">快捷建档</h4>
-              <p className="text-sm text-rose-400">可通过扫码快速录入身份证信息</p>
+              <p className="text-sm text-rose-400">
+                {hasScanFilled ? '扫码信息已自动填充' : '可通过扫码快速录入身份证和预约信息'}
+              </p>
             </div>
-            <button type="button" className="btn-secondary ml-auto">
-              扫码录入
+            <button
+              type="button"
+              onClick={() => setScanModalOpen(true)}
+              className={`ml-auto ${hasScanFilled ? 'btn-secondary' : 'btn-primary'}`}
+            >
+              {hasScanFilled ? '重新扫码' : '扫码录入'}
             </button>
           </div>
+
+          {hasScanFilled && (
+            <div className="p-4 bg-mint-50 rounded-xl flex items-start gap-3">
+              <div className="w-8 h-8 rounded-full bg-mint-500 flex items-center justify-center flex-shrink-0">
+                <Sparkles className="w-4 h-4 text-white" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-mint-700">扫码成功，信息已自动填充</p>
+                <p className="text-xs text-mint-500 mt-1">
+                  姓名、身份证、手机号、来院渠道、预约项目均已自动录入，请核对无误后提交
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="card p-6">
@@ -310,6 +353,12 @@ const NewCustomer = () => {
           </button>
         </div>
       </form>
+
+      <ScanModal
+        isOpen={scanModalOpen}
+        onClose={() => setScanModalOpen(false)}
+        onScanSuccess={handleScanSuccess}
+      />
     </div>
   );
 };
