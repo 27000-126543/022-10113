@@ -19,12 +19,24 @@ export interface ScanResult {
   appointmentItem: string;
 }
 
+const generateValidIdCard = (baseId: string): string => {
+  const weights = [7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2];
+  const checkCodes = ['1', '0', 'X', '9', '8', '7', '6', '5', '4', '3', '2'];
+
+  let sum = 0;
+  for (let i = 0; i < 17; i++) {
+    sum += parseInt(baseId[i]) * weights[i];
+  }
+  const checkCode = checkCodes[sum % 11];
+  return baseId + checkCode;
+};
+
 const mockIdCards = [
-  { name: '张雨薇', idCard: '310115199508123456', phone: '13912345678', channel: '小红书', item: '光子嫩肤' },
-  { name: '李静怡', idCard: '320104199203224567', phone: '13823456789', channel: '老客转介', item: '玻尿酸填充' },
-  { name: '王梦瑶', idCard: '330106199811055678', phone: '13734567890', channel: '大众点评', item: '双眼皮' },
-  { name: '陈雅婷', idCard: '440103199005186789', phone: '13645678901', channel: '抖音', item: '热玛吉' },
-  { name: '刘诗涵', idCard: '510107199604287890', phone: '13556789012', channel: '朋友推荐', item: '隆鼻' },
+  { name: '张雨薇', idCard: generateValidIdCard('31011519950812345'), phone: '13912345678', channel: '小红书', item: '光子嫩肤' },
+  { name: '李静怡', idCard: generateValidIdCard('32010419920322456'), phone: '13823456789', channel: '老客转介', item: '玻尿酸填充' },
+  { name: '王梦瑶', idCard: generateValidIdCard('33010619981105567'), phone: '13734567890', channel: '大众点评', item: '双眼皮' },
+  { name: '陈雅婷', idCard: generateValidIdCard('44010319900518678'), phone: '13645678901', channel: '抖音', item: '热玛吉' },
+  { name: '刘诗涵', idCard: generateValidIdCard('51010719960428789'), phone: '13556789012', channel: '朋友推荐', item: '隆鼻' },
 ];
 
 export const ScanModal = ({ isOpen, onClose, onScanSuccess }: ScanModalProps) => {

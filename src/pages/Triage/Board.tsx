@@ -24,7 +24,7 @@ const TriageBoard = () => {
     .filter((r) => r.status === 'queued')
     .sort((a, b) => {
       if (b.priority !== a.priority) return b.priority - a.priority;
-      return a.waitTime - b.waitTime;
+      return new Date(a.queuedAt).getTime() - new Date(b.queuedAt).getTime();
     });
 
   const activeRecords = triageRecords.filter(
@@ -99,10 +99,11 @@ const TriageBoard = () => {
                   Math.round(
                     queuedRecords.reduce((acc, r) => {
                       const doctor = doctors.find((d) => d.id === r.doctorId);
-                      const doctorQueueIndex = queuedRecords
-                        .filter((qr) => qr.doctorId === r.doctorId)
-                        .findIndex((qr) => qr.id === r.id);
-                      return acc + (doctor ? calculateEstimatedWait(doctor, triageRecords, doctorQueueIndex) : r.estimatedWait);
+                      const doctorQueue = triageRecords.filter(
+                        (qr) => qr.doctorId === r.doctorId && (qr.status === 'queued' || qr.status === 'calling')
+                      );
+                      const doctorQueueIndex = doctorQueue.findIndex((qr) => qr.id === r.id);
+                      return acc + (doctor ? calculateEstimatedWait(doctor, triageRecords, Math.max(0, doctorQueueIndex)) : r.estimatedWait);
                     }, 0) / Math.max(queuedRecords.length, 1)
                   )
                 )}
@@ -120,14 +121,15 @@ const TriageBoard = () => {
                   const priorityInfo = getPriorityLabel(record.priority);
                   const doctor = doctors.find((d) => d.id === record.doctorId);
 
-                  const doctorQueueCount = queuedRecords.filter(
-                    (r) => r.doctorId === record.doctorId
+                  const doctorQueueCount = triageRecords.filter(
+                    (r) => r.doctorId === record.doctorId && (r.status === 'queued' || r.status === 'calling')
                   ).length;
-                  const doctorQueueIndex = queuedRecords
-                    .filter((r) => r.doctorId === record.doctorId)
-                    .findIndex((r) => r.id === record.id);
+                  const doctorQueue = triageRecords.filter(
+                    (r) => r.doctorId === record.doctorId && (r.status === 'queued' || r.status === 'calling')
+                  );
+                  const doctorQueueIndex = doctorQueue.findIndex((r) => r.id === record.id);
                   const dynamicWait = doctor
-                    ? calculateEstimatedWait(doctor, triageRecords, doctorQueueIndex)
+                    ? calculateEstimatedWait(doctor, triageRecords, Math.max(0, doctorQueueIndex))
                     : record.estimatedWait;
 
                   return (
