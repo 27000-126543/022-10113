@@ -269,16 +269,80 @@ export const generateRiskAlerts = (
   return alerts;
 };
 
+export const getTodaySchedules = (
+  doctorId: string,
+  schedules: Schedule[]
+): Schedule[] => {
+  const today = new Date().toISOString().split('T')[0];
+  return schedules.filter((s) => s.doctorId === doctorId && s.date === today);
+};
+
+export const formatScheduleText = (schedules: Schedule[]): string => {
+  if (schedules.length === 0) return '今日无排班';
+  return schedules
+    .sort((a, b) => a.startTime.localeCompare(b.startTime))
+    .map((s) => `${s.startTime}-${s.endTime}`)
+    .join('、');
+};
+
+export const isDoctorOnDutyNow = (schedules: Schedule[]): boolean => {
+  if (schedules.length === 0) return false;
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+  return schedules.some((s) => {
+    const [startH, startM] = s.startTime.split(':').map(Number);
+    const [endH, endM] = s.endTime.split(':').map(Number);
+    const startMinutes = startH * 60 + startM;
+    const endMinutes = endH * 60 + endM;
+    return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
+  });
+};
+
 export const getDoctorRecommendations = (
   doctors: Doctor[],
   questionnaire: Questionnaire,
-  triageRecords: TriageRecord[]
-): Array<{ doctor: Doctor; score: number; estimatedWait: number; isRecommended: boolean; matchReason: string }> => {
+  triageRecords: TriageRecord[],
+  schedules: Schedule[] = []
+): Array<{
+  doctor: Doctor;
+  score: number;
+  estimatedWait: number;
+  isRecommended: boolean;
+  matchReason: string;
+  todaySchedules: Schedule[];
+  scheduleText: string;
+}> => {
   const results = doctors
-    .filter((d) => d.status !== 'offline')
     .map((doctor) => {
-      const score = calculateMatchScore(doctor, questionnaire);
-      const estimatedWait = calculateEstimatedWait(doctor, triageRecords);
+      const todaySchedules = getTodaySchedules(doctor.id, schedules);
+      const onDutyNow = isDoctorOnDutyNow(todaySchedules);
+      const hasScheduleToday = todaySchedules.length > 0;
+
+      let statusPenalty = 0;
+      let scheduleBonus = 0;
+
+      if (doctor.status === 'offline') {
+        statusPenalty = 100;
+      } else if (!hasScheduleToday) {
+        statusPenalty = 50;
+      } else if (!onDutyNow && hasScheduleToday) {
+        statusPenalty = 15;
+      }
+
+      if (hasScheduleToday && onDutyNow && doctor.status === 'available') {
+        scheduleBonus = 20;
+      } else if (hasScheduleToday && doctor.status !== 'offline') {
+        scheduleBonus = 10;
+      }
+
+      const baseScore = calculateMatchScore(doctor, questionnaire);
+      const score = baseScore + scheduleBonus - statusPenalty;
+
+      const doctorQueueIndex = triageRecords.filter(
+        (r) => r.doctorId === doctor.id && (r.status === 'queued' || r.status === 'calling')
+      ).length;
+      const estimatedWait = calculateEstimatedWait(doctor, triageRecords, doctorQueueIndex);
 
       let matchReason = '';
       const suggestedDept = getSuggestedDepartment(questionnaire);
@@ -296,7 +360,23 @@ export const getDoctorRecommendations = (
         matchReason = `匹配 ${matchCount} 项专长`;
       }
 
-      return { doctor, score, estimatedWait, isRecommended: false, matchReason };
+      if (!hasScheduleToday) {
+        matchReason += ' · 今日无排班';
+      } else if (!onDutyNow) {
+        matchReason += ' · 非当前接诊时段';
+      }
+
+      const scheduleText = formatScheduleText(todaySchedules);
+
+      return {
+        doctor,
+        score,
+        estimatedWait,
+        isRecommended: false,
+        matchReason,
+        todaySchedules,
+        scheduleText,
+      };
     })
     .sort((a, b) => b.score - a.score || a.estimatedWait - b.estimatedWait);
 

@@ -9,6 +9,7 @@ import {
   Check,
   Sparkles,
   Stethoscope,
+  Clock,
 } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import { Tag } from '@/components/Tag';
@@ -33,7 +34,7 @@ const steps = [
 const QuestionnaireForm = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { getCustomer, getQuestionnaire, doctors, triageRecords, addQuestionnaire, addTriageRecord } = useAppStore();
+  const { getCustomer, getQuestionnaire, doctors, triageRecords, schedules, addQuestionnaire, addTriageRecord } = useAppStore();
 
   const customer = getCustomer(id || '');
   const existingQuestionnaire = getQuestionnaire(id || '');
@@ -70,10 +71,10 @@ const QuestionnaireForm = () => {
       riskAlerts,
       createdAt: new Date().toISOString(),
     };
-    const recommendations = getDoctorRecommendations(doctors, tempQuestionnaire, triageRecords);
+    const recommendations = getDoctorRecommendations(doctors, tempQuestionnaire, triageRecords, schedules);
 
     return recommendations;
-  }, [doctors, customer, formData, riskAlerts, triageRecords]);
+  }, [doctors, customer, formData, riskAlerts, triageRecords, schedules]);
 
   const suggestedDepartment = useMemo(() => {
     if (!customer) return null;
@@ -137,6 +138,10 @@ const QuestionnaireForm = () => {
   const handleSubmit = () => {
     if (!customer || !selectedDoctor) return;
 
+    if (isManualAdjusted && !adjustReason.trim()) {
+      return;
+    }
+
     const questionnaire = {
       id: `q_${Date.now()}`,
       customerId: customer.id,
@@ -151,7 +156,7 @@ const QuestionnaireForm = () => {
     const suggestedDoctorId = doctorRecommendations[0]?.doctor.id || selectedDoctor.id;
 
     const selectedRec = doctorRecommendations.find((r) => r.doctor.id === selectedDoctor.id);
-    const estimatedWait = selectedRec?.estimatedWait || 15;
+    const estimatedWait = selectedRec?.estimatedWait ?? 15;
 
     const finalPriority = hasHighRisk ? 3 : isManualAdjusted ? 2 : 1;
 
@@ -550,7 +555,9 @@ const QuestionnaireForm = () => {
                           {rec.isRecommended && (
                             <Tag variant="mint" size="sm">系统推荐</Tag>
                           )}
-                          {rec.doctor.status === 'available' ? (
+                          {rec.todaySchedules.length === 0 ? (
+                            <Tag variant="gray" size="sm">无排班</Tag>
+                          ) : rec.doctor.status === 'available' ? (
                             <Tag variant="mint" size="sm">可接诊</Tag>
                           ) : rec.doctor.status === 'busy' ? (
                             <Tag variant="rose" size="sm">接诊中</Tag>
@@ -562,6 +569,10 @@ const QuestionnaireForm = () => {
                           {rec.doctor.title} · {rec.doctor.departmentName}
                         </p>
                         <p className="text-xs text-rose-400 mt-0.5">{rec.matchReason}</p>
+                        <p className="text-xs text-mint-500 mt-0.5 flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          今日：{rec.scheduleText}
+                        </p>
                       </div>
 
                       <div className="text-right">
@@ -602,11 +613,16 @@ const QuestionnaireForm = () => {
                   value={adjustReason}
                   onChange={(e) => setAdjustReason(e.target.value)}
                   placeholder="请说明调整医生的原因..."
-                  className="w-full px-4 py-3 border border-amber-200 rounded-xl bg-white
-                           focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-300
-                           transition-all duration-200 resize-none text-sm"
+                  className={`w-full px-4 py-3 border rounded-xl bg-white
+                           focus:outline-none focus:ring-2 transition-all duration-200 resize-none text-sm
+                           ${!adjustReason.trim()
+                             ? 'border-coral-300 focus:ring-coral-200'
+                             : 'border-amber-200 focus:ring-amber-300 focus:border-amber-300'}`}
                   rows={3}
                 />
+                {!adjustReason.trim() && (
+                  <p className="text-xs text-coral-500 mt-2">请填写调整原因后再确认分诊</p>
+                )}
               </div>
             )}
 
@@ -699,7 +715,14 @@ const QuestionnaireForm = () => {
               <ChevronRight className="w-4 h-4" />
             </button>
           ) : (
-            <button onClick={handleSubmit} className="btn-primary flex items-center gap-2">
+            <button
+              onClick={handleSubmit}
+              disabled={isManualAdjusted && !adjustReason.trim()}
+              className={`btn-primary flex items-center gap-2
+                        ${isManualAdjusted && !adjustReason.trim()
+                          ? 'opacity-50 cursor-not-allowed'
+                          : ''}`}
+            >
               确认分诊
               <Check className="w-4 h-4" />
             </button>
